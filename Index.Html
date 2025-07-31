@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Watch Together Platform</title>
+  <style>
+    body { font-family: sans-serif; background: #000; color: #fff; text-align: center; }
+    #videoContainer { position: relative; margin-top: 20px; }
+    video { width: 80%; max-width: 800px; margin-top: 20px; }
+    button, input { margin: 10px; padding: 10px; font-size: 16px; }
+    #remoteVideo, #localVideo { width: 150px; height: 100px; object-fit: cover; margin: 5px; border: 2px solid white; }
+  </style>
+</head>
+<body>
+
+<h1>🎬 Watch Together Platform</h1>
+
+<input type="text" id="videoUrl" placeholder="Paste any video link (e.g., https://...)" size="50"/>
+<button onclick="loadVideo()">Load Video</button>
+
+<div id="videoContainer">
+  <video id="videoPlayer" controls></video>
+  <br />
+  <button onclick="seek(-10)">⏪ 10s</button>
+  <button onclick="seek(10)">⏩ 10s</button>
+  <button onclick="toggleFullScreen()">🔳 Fullscreen</button>
+</div>
+
+<hr>
+
+<h2>🎥 Video Call + Screen Share</h2>
+<video id="localVideo" autoplay muted playsinline></video>
+<video id="remoteVideo" autoplay playsinline></video>
+<br />
+<button onclick="startVideoCall()">Start Video Call</button>
+<button onclick="toggleScreenShare()">Share Screen</button>
+
+<script>
+  let localStream, remoteStream, peerConnection, screenStream;
+  const servers = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+  const videoPlayer = document.getElementById('videoPlayer');
+  function loadVideo() {
+    const url = document.getElementById('videoUrl').value;
+    if (url) {
+      videoPlayer.src = url;
+      videoPlayer.load();
+    }
+  }
+
+  function seek(seconds) {
+    videoPlayer.currentTime += seconds;
+  }
+
+  function toggleFullScreen() {
+    if (!document.fullscreenElement) {
+      videoPlayer.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  async function startVideoCall() {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById('localVideo').srcObject = localStream;
+
+    peerConnection = new RTCPeerConnection(servers);
+
+    peerConnection.ontrack = e => {
+      document.getElementById('remoteVideo').srcObject = e.streams[0];
+    };
+
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.onicecandidate = e => {
+      if (e.candidate) {
+        // Send ICE candidate to other peer
+      }
+    };
+
+    if (window.location.hash === "#host") {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      console.log("Send this offer to guest:\n", JSON.stringify(offer));
+    } else {
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      console.log("Send this answer to host:\n", JSON.stringify(answer));
+    }
+  }
+
+  async function toggleScreenShare() {
+    if (!screenStream) {
+      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getTracks()[0];
+      const sender = peerConnection.getSenders().find(s => s.track.kind === "video");
+      sender.replaceTrack(screenTrack);
+
+      screenTrack.onended = () => {
+        // Revert to webcam when screen share ends
+        const webcamTrack = localStream.getVideoTracks()[0];
+        sender.replaceTrack(webcamTrack);
+        screenStream = null;
+      };
+    } else {
+      screenStream.getTracks().forEach(track => track.stop());
+      screenStream = null;
+    }
+  }
+</script>
+
+</body>
+</html>
